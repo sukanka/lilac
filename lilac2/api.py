@@ -188,7 +188,7 @@ def run_cmd(cmd: Cmd, **kwargs) -> str:
   else:
     return _run_cmd(cmd, **kwargs)
 
-def get_pkgver_and_pkgrel(
+def get_pkgver_and_pkgrel(pkgver_str: str = "pkgver"
 ) -> Tuple[Optional[str], Optional[PkgRel]]:
   pkgrel = None
   pkgver = None
@@ -202,7 +202,7 @@ def get_pkgver_and_pkgrel(
             pkgrel = int(pkgrel) # type: ignore
           except (ValueError, TypeError):
             pass
-        elif l.startswith('pkgver='):
+        elif l.startswith(f'{pkgver_str}='):
           pkgver = l.rstrip().split('=', 1)[-1].strip('\'"')
   except FileNotFoundError:
     pass
@@ -217,14 +217,14 @@ def _next_pkgrel(rel: PkgRel) -> int:
   return int(first_segment) + 1
 
 def update_pkgver_and_pkgrel(
-  newver: str, *, updpkgsums: bool = True) -> None:
+  newver: str, *, updpkgsums: bool = True, pkgver_str: str = "pkgver") -> None:
 
-  pkgver, pkgrel = get_pkgver_and_pkgrel()
+  pkgver, pkgrel = get_pkgver_and_pkgrel(pkgver_str = pkgver_str)
   assert pkgver is not None and pkgrel is not None
 
   for line in edit_file('PKGBUILD'):
-    if line.startswith('pkgver=') and pkgver != newver:
-        line = f'pkgver={newver}'
+    if line.startswith(f'{pkgver_str}=') and pkgver != newver:
+        line = f'{pkgver_str}={newver}'
     elif line.startswith('pkgrel='):
       if pkgver != newver:
         line = 'pkgrel=1'
@@ -331,14 +331,14 @@ class AurDownloadError(Exception):
   def __init__(self, pkgname: str) -> None:
     self.pkgname = pkgname
 
-def _allow_update_aur_repo(pkgname: str, diff: str) -> bool:
+def _allow_update_aur_repo(pkgname: str, diff: str, pkgver_str: str= "pkgver") -> bool:
   is_vcs = pkgname.endswith(VCS_SUFFIXES)
   for line in diff.splitlines():
     if not line.startswith(('+', '-')) or line.startswith(('+++', '---')):
       # Not a changed line
       continue
     line = line[1:]  # remove the +/- marker
-    if is_vcs and not line.startswith(('pkgver=', 'pkgrel=')):
+    if is_vcs and not line.startswith((f'{pkgver_str}=', 'pkgrel=')):
       return True
     if not is_vcs and not line.startswith('pkgrel='):
       return True
@@ -508,6 +508,7 @@ def _get_aur_packager(name: str) -> Tuple[Optional[str], str]:
 def aur_pre_build(
   name: Optional[str] = None, *, do_vcs_update: Optional[bool] = None,
   maintainers: Union[str, Container[str]] = (),
+  pkgver_str: str ="pkgver"
 ) -> None:
   # import pyalpm here so that lilac can be easily used on non-Arch
   # systems (e.g. Travis CI)
@@ -531,11 +532,11 @@ def aur_pre_build(
     if error:
       raise Exception('unexpected AUR package maintainer / packager', who)
 
-  pkgver, pkgrel = get_pkgver_and_pkgrel()
+  pkgver, pkgrel = get_pkgver_and_pkgrel(pkgver_str=pkgver_str)
   _g.aur_pre_files = clean_directory()
   _g.aur_building_files = _download_aur_pkgbuild(name)
 
-  aur_pkgver, aur_pkgrel = get_pkgver_and_pkgrel()
+  aur_pkgver, aur_pkgrel = get_pkgver_and_pkgrel(pkgver_str=pkgver_str)
   if pkgver and pkgver == aur_pkgver:
     if pyalpm.vercmp(f'1-{pkgrel}', f'1-{aur_pkgrel}') < 0:
       # use aur pkgrel
@@ -550,7 +551,7 @@ def aur_pre_build(
   if do_vcs_update:
     vcs_update()
     # recheck after sync, because AUR pkgver may lag behind
-    new_pkgver, new_pkgrel = get_pkgver_and_pkgrel()
+    new_pkgver, new_pkgrel = get_pkgver_and_pkgrel(pkgver_str=pkgver_str)
     if pkgver and pkgver == new_pkgver:
       if pkgrel is None:
         next_pkgrel = 1
